@@ -1,0 +1,14 @@
+{
+    // The game is a plain local file — there is no server to connect to.
+    // "file" opens index.html directly; a "url" of http://localhost:... would
+    // fail with "site cannot be reached", since nothing is listening there.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Play Snake",
+            "file": "${workspaceFolder}/index.html"
+        }
+    ]
+}

@@ -162,3 +162,43 @@ tests only ever press keys and read the canvas, so they never knew the insides
 had changed — which is what makes them a fair check.
 
 ---
+
+## Round 5 — one file per class after all
+
+I wasn't satisfied with keeping everything in one file and asked again: a file
+per class, or whatever best practice is.
+
+Best practice splits two ways here, which is what I'd missed. For a normal web
+project it's one class per file with `import`/`export` and a build tool. That
+specific approach is the one thing that cannot work here — and this time it was
+tested rather than argued about. A page opened from disk has a `null` origin,
+ES modules are fetched under CORS rules, so the browser refuses. A minimal test
+page using `<script type="module">` from `file://` was loaded in real Chrome and
+the module never ran.
+
+Plain `<script src="...">` tags aren't subject to CORS, so they do load from
+disk. That's the older pattern — the files share one global scope and load
+order matters — but it gives the file separation without breaking the one hard
+requirement, that `index.html` works when you open it.
+
+So it's now split: `js/config.js`, `js/geometry.js`, `js/snake.js`,
+`js/board.js`, `js/renderer.js`, `js/game.js`, `js/main.js`, plus `style.css`.
+`index.html` is just the page and the script tags, in dependency order.
+
+**Verified two ways**, since this changes how the game loads and not what it
+does:
+
+- The whole test suite again — perfect play to a win, tail chase, wall death,
+  body death. All identical.
+- Real Chrome, loading `index.html` from `file://` with no special flags. The
+  classes were defined, the game built itself, and after two seconds the snake
+  had driven into the wall and died — so the scripts loaded, the clock ran and
+  the rules executed. Nothing in the tests would have caught a loading failure,
+  which is exactly why this one had to be a real browser.
+
+**The tradeoff I accepted:** one file could not break. Eight files can, if they
+get separated from each other — a copy of `index.html` on its own is now a
+blank page. That's the price of the structure, and the reason I'd argued for a
+single file first.
+
+---

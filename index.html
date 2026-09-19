@@ -3,260 +3,27 @@
 <head>
 <meta charset="utf-8">
 <title>Snake</title>
-<style>
-  body {
-    background: #1a1a1a;
-    color: #eee;
-    font-family: monospace;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding-top: 40px;
-  }
-  canvas {
-    background: #000;
-    border: 2px solid #444;
-  }
-  #score {
-    font-size: 20px;
-    margin-bottom: 10px;
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div id="score">Score: 0</div>
 <canvas id="board" width="400" height="400"></canvas>
 
-<script>
-const CELL  = 20;   // pixels per square
-const COLS  = 20;
-const ROWS  = 20;
-const SPEED = 150;  // milliseconds per move
-
-const DIRECTIONS = {
-  ArrowUp:    {x:  0, y: -1},
-  ArrowDown:  {x:  0, y:  1},
-  ArrowLeft:  {x: -1, y:  0},
-  ArrowRight: {x:  1, y:  0}
-};
-
-const same     = (a, b) => a.x === b.x && a.y === b.y;
-const opposite = (a, b) => a.x === -b.x && a.y === -b.y;
-
-
-/**
- * The snake itself: where it is, which way it is going, and what it does
- * when it moves. Knows nothing about food, score or drawing.
- */
-class Snake {
-  constructor(cells, direction) {
-    this.cells = cells.map(c => ({...c}));
-    this.direction = {...direction};
-    this.turns = [];
-  }
-
-  get head()   { return this.cells[0]; }
-  get length() { return this.cells.length; }
-
-  /**
-   * Queue a turn rather than applying it now. Validating against the last
-   * turn already queued — not the direction currently on screen — is what
-   * stops two quick presses stacking into a reversal.
-   */
-  queueTurn(direction) {
-    const last = this.turns.length ? this.turns[this.turns.length - 1] : this.direction;
-    if (opposite(direction, last) || same(direction, last)) return;
-    if (this.turns.length < 2) this.turns.push(direction);
-  }
-
-  /** Take one turn off the queue and report where the head would land. */
-  nextHead() {
-    if (this.turns.length) this.direction = this.turns.shift();
-    return {
-      x: this.head.x + this.direction.x,
-      y: this.head.y + this.direction.y
-    };
-  }
-
-  /**
-   * Would moving into this cell be a crash? The tail square is vacated on the
-   * same tick the head arrives, so it only counts while the snake is growing,
-   * when the tail stays put.
-   */
-  crashesInto(cell, growing) {
-    const body = growing ? this.cells : this.cells.slice(0, -1);
-    return body.some(c => same(c, cell));
-  }
-
-  covers(cell) {
-    return this.cells.some(c => same(c, cell));
-  }
-
-  moveTo(cell, grow) {
-    this.cells.unshift(cell);
-    if (!grow) this.cells.pop();
-  }
-}
-
-
-/** The grid the snake lives on. Owns the bounds and where food can appear. */
-class Board {
-  constructor(cols, rows) {
-    this.cols = cols;
-    this.rows = rows;
-  }
-
-  get area() { return this.cols * this.rows; }
-
-  contains(cell) {
-    return cell.x >= 0 && cell.x < this.cols &&
-           cell.y >= 0 && cell.y < this.rows;
-  }
-
-  /** Caller must ensure a free cell exists — a full board would spin here. */
-  freeCell(snake) {
-    let cell;
-    do {
-      cell = {
-        x: Math.floor(Math.random() * this.cols),
-        y: Math.floor(Math.random() * this.rows)
-      };
-    } while (snake.covers(cell));
-    return cell;
-  }
-}
-
-
-/** Draws a game onto a canvas. Reads state, never changes it. */
-class Renderer {
-  constructor(canvas, cell) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.cell = cell;
-  }
-
-  draw(game) {
-    const ctx = this.ctx;
-
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    ctx.fillStyle = '#e44';
-    this.square(game.food);
-
-    ctx.fillStyle = '#4c4';
-    for (const c of game.snake.cells) this.square(c);
-
-    if (game.state !== 'playing') this.overlay(game.state === 'won');
-  }
-
-  square(cell) {
-    this.ctx.fillRect(cell.x * this.cell, cell.y * this.cell, this.cell, this.cell);
-  }
-
-  overlay(won) {
-    const ctx = this.ctx;
-    const midX = this.canvas.width / 2;
-    const midY = this.canvas.height / 2;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    ctx.fillStyle = won ? '#4c4' : '#fff';
-    ctx.font = '32px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(won ? 'You win!' : 'Game Over', midX, midY - 10);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '16px monospace';
-    ctx.fillText('press R to restart', midX, midY + 20);
-  }
-}
-
-
-/** Ties it together: the rules, the score, and whether the game is over. */
-class Game {
-  constructor(board, renderer, scoreEl) {
-    this.board = board;
-    this.renderer = renderer;
-    this.scoreEl = scoreEl;
-    this.reset();
-  }
-
-  reset() {
-    this.snake = new Snake(
-      [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}],
-      {x: 1, y: 0}
-    );
-    this.score = 0;
-    this.state = 'playing';
-    this.food = this.board.freeCell(this.snake);
-    this.showScore();
-    this.draw();
-  }
-
-  step() {
-    if (this.state !== 'playing') return;
-
-    const head = this.snake.nextHead();
-    const eating = same(head, this.food);
-
-    if (!this.board.contains(head) || this.snake.crashesInto(head, eating)) {
-      this.state = 'dead';
-      this.draw();
-      return;
-    }
-
-    this.snake.moveTo(head, eating);
-
-    if (eating) {
-      this.score++;
-      this.showScore();
-
-      // Filling the board is a win. Asking for another food cell here would
-      // never return, because there is no empty square left.
-      if (this.snake.length === this.board.area) {
-        this.state = 'won';
-        this.draw();
-        return;
-      }
-
-      this.food = this.board.freeCell(this.snake);
-    }
-
-    this.draw();
-  }
-
-  handleKey(key) {
-    if (key === 'r' || key === 'R') {
-      this.reset();
-      return true;
-    }
-    if (DIRECTIONS[key]) {
-      this.snake.queueTurn(DIRECTIONS[key]);
-      return true;
-    }
-    return false;
-  }
-
-  showScore() { this.scoreEl.textContent = 'Score: ' + this.score; }
-  draw()      { this.renderer.draw(this); }
-}
-
-
-const game = new Game(
-  new Board(COLS, ROWS),
-  new Renderer(document.getElementById('board'), CELL),
-  document.getElementById('score')
-);
-
-document.addEventListener('keydown', e => {
-  if (game.handleKey(e.key)) e.preventDefault();
-});
-
-setInterval(() => game.step(), SPEED);
-</script>
+<!--
+  Plain <script src> tags, not ES modules, and the order matters: each file
+  uses what the ones above it define. Modules would be tidier, but they are
+  fetched under CORS rules and a page opened straight from disk has a null
+  origin, so the browser refuses to load them. Classic scripts are exempt,
+  which is what keeps this working by double-clicking index.html.
+-->
+<script src="js/config.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/snake.js"></script>
+<script src="js/board.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
 
 </body>
 </html>

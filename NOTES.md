@@ -105,3 +105,60 @@ too: driving into the top wall still kills, and turning back into the middle of
 my own body still kills. Both do.
 
 ---
+
+## Round 3 — a change I decided not to make
+
+The obvious next thing was to make the snake speed up as you score. I asked
+whether that's actually a rule of Snake, and it isn't — there is no canonical
+Snake. What's universal is that you can't stop moving, eating makes you longer,
+and you die on a wall or yourself. Speeding up is a common convention in
+clones, not part of the game.
+
+Snake also already gets harder on its own: the snake grows, so the space you
+have to steer through shrinks. The difficulty curve is built into the shape of
+the game. Speeding up mainly shifts it from a planning game toward a reflex
+game — you stop having time to work out a safe route and start dying to
+reaction time instead.
+
+I decided not to add it. Writing this down because deciding against a change is
+also a result, and I'd rather record the reasoning than quietly add a feature
+because it seemed expected.
+
+---
+
+## Round 4 — tidying up
+
+Nothing to do with playing. The code had grown into a set of loose functions
+sharing top-level variables, so I asked for it to be cleaned up. I suggested
+moving helper functions into a separate Python file, or using OOP.
+
+**Two things I had wrong:**
+
+Python can't be part of this at all. Browsers run JavaScript; a `.py` file next
+to `index.html` would just sit there, because nothing would load it. Getting
+Python into a browser needs something like Pyodide, which is a large WebAssembly
+download plus a bootstrap step — and the brief says no build step.
+
+Splitting into separate `.js` files would technically work, but not well here.
+Modern `import`/`export` modules fail when you open a page straight off disk:
+the browser treats a `file://` page as having no origin and refuses to load the
+module. So it would only work with old-style script tags — more files and
+load-order coupling, without getting real modules in return. Since the brief
+says `index.html` *is* the game, opened directly, one self-contained file is
+the safer answer.
+
+**What did happen:** the OOP part, inside the single file. It's now four
+classes with clear jobs — `Snake` (where it is and how it moves), `Board` (the
+grid and where food may appear), `Renderer` (drawing, reads state and never
+changes it), and `Game` (the rules and whether the game is over). The rules
+about turning and about the tail now live on the objects they belong to instead
+of being comments around loose functions.
+
+This changes nothing a player can see, which is exactly why it's the risky kind
+of change — the way it goes wrong is quietly reintroducing a bug already fixed.
+So the whole test suite was run again afterwards: perfect play to a win, the
+tail chase, the wall death, the body death. All four behave identically. The
+tests only ever press keys and read the canvas, so they never knew the insides
+had changed — which is what makes them a fair check.
+
+---

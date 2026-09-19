@@ -29,146 +29,233 @@
 <canvas id="board" width="400" height="400"></canvas>
 
 <script>
-const CELL = 20;
-const COLS = 20;
-const ROWS = 20;
-const SPEED = 150;
+const CELL  = 20;   // pixels per square
+const COLS  = 20;
+const ROWS  = 20;
+const SPEED = 150;  // milliseconds per move
 
-const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d');
-const scoreEl = document.getElementById('score');
-
-let snake, direction, turns, food, score, dead, won;
-
-function reset() {
-  snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
-  direction = {x: 1, y: 0};
-  turns = [];
-  score = 0;
-  dead = false;
-  won = false;
-  placeFood();
-  scoreEl.textContent = 'Score: 0';
-}
-
-function placeFood() {
-  do {
-    food = {
-      x: Math.floor(Math.random() * COLS),
-      y: Math.floor(Math.random() * ROWS)
-    };
-  } while (snake.some(s => s.x === food.x && s.y === food.y));
-}
-
-function step() {
-  if (dead || won) return;
-
-  // Apply at most one queued turn per tick, so the snake actually performs a
-  // turn before the next one is allowed.
-  if (turns.length) direction = turns.shift();
-
-  const head = {
-    x: snake[0].x + direction.x,
-    y: snake[0].y + direction.y
-  };
-
-  if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
-    dead = true;
-    draw();
-    return;
-  }
-
-  const eating = head.x === food.x && head.y === food.y;
-
-  // The tail square is vacated on this same tick, so moving into it is legal —
-  // unless we are eating, because then the tail stays put and the snake grows.
-  const body = eating ? snake : snake.slice(0, -1);
-
-  if (body.some(s => s.x === head.x && s.y === head.y)) {
-    dead = true;
-    draw();
-    return;
-  }
-
-  snake.unshift(head);
-
-  if (eating) {
-    score++;
-    scoreEl.textContent = 'Score: ' + score;
-
-    // Filling the board is a win. Asking placeFood() for an empty square here
-    // would spin forever, because there isn't one.
-    if (snake.length === COLS * ROWS) {
-      won = true;
-      draw();
-      return;
-    }
-
-    placeFood();
-  } else {
-    snake.pop();
-  }
-
-  draw();
-}
-
-function draw() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = '#e44';
-  ctx.fillRect(food.x * CELL, food.y * CELL, CELL, CELL);
-
-  ctx.fillStyle = '#4c4';
-  for (const s of snake) {
-    ctx.fillRect(s.x * CELL, s.y * CELL, CELL, CELL);
-  }
-
-  if (dead || won) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = won ? '#4c4' : '#fff';
-    ctx.font = '32px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(won ? 'You win!' : 'Game Over', canvas.width / 2, canvas.height / 2 - 10);
-    ctx.fillStyle = '#fff';
-    ctx.font = '16px monospace';
-    ctx.fillText('press R to restart', canvas.width / 2, canvas.height / 2 + 20);
-  }
-}
-
-const KEYS = {
+const DIRECTIONS = {
   ArrowUp:    {x:  0, y: -1},
   ArrowDown:  {x:  0, y:  1},
   ArrowLeft:  {x: -1, y:  0},
   ArrowRight: {x:  1, y:  0}
 };
 
-function queueTurn(next) {
-  // Validate against the last turn already queued, not against the direction
-  // the snake is currently drawn facing — otherwise two quick presses can
-  // stack into a reversal.
-  const last = turns.length ? turns[turns.length - 1] : direction;
-  if (next.x === -last.x && next.y === -last.y) return;  // reversal
-  if (next.x === last.x && next.y === last.y) return;    // no change
-  if (turns.length < 2) turns.push(next);
+const same     = (a, b) => a.x === b.x && a.y === b.y;
+const opposite = (a, b) => a.x === -b.x && a.y === -b.y;
+
+
+/**
+ * The snake itself: where it is, which way it is going, and what it does
+ * when it moves. Knows nothing about food, score or drawing.
+ */
+class Snake {
+  constructor(cells, direction) {
+    this.cells = cells.map(c => ({...c}));
+    this.direction = {...direction};
+    this.turns = [];
+  }
+
+  get head()   { return this.cells[0]; }
+  get length() { return this.cells.length; }
+
+  /**
+   * Queue a turn rather than applying it now. Validating against the last
+   * turn already queued — not the direction currently on screen — is what
+   * stops two quick presses stacking into a reversal.
+   */
+  queueTurn(direction) {
+    const last = this.turns.length ? this.turns[this.turns.length - 1] : this.direction;
+    if (opposite(direction, last) || same(direction, last)) return;
+    if (this.turns.length < 2) this.turns.push(direction);
+  }
+
+  /** Take one turn off the queue and report where the head would land. */
+  nextHead() {
+    if (this.turns.length) this.direction = this.turns.shift();
+    return {
+      x: this.head.x + this.direction.x,
+      y: this.head.y + this.direction.y
+    };
+  }
+
+  /**
+   * Would moving into this cell be a crash? The tail square is vacated on the
+   * same tick the head arrives, so it only counts while the snake is growing,
+   * when the tail stays put.
+   */
+  crashesInto(cell, growing) {
+    const body = growing ? this.cells : this.cells.slice(0, -1);
+    return body.some(c => same(c, cell));
+  }
+
+  covers(cell) {
+    return this.cells.some(c => same(c, cell));
+  }
+
+  moveTo(cell, grow) {
+    this.cells.unshift(cell);
+    if (!grow) this.cells.pop();
+  }
 }
 
+
+/** The grid the snake lives on. Owns the bounds and where food can appear. */
+class Board {
+  constructor(cols, rows) {
+    this.cols = cols;
+    this.rows = rows;
+  }
+
+  get area() { return this.cols * this.rows; }
+
+  contains(cell) {
+    return cell.x >= 0 && cell.x < this.cols &&
+           cell.y >= 0 && cell.y < this.rows;
+  }
+
+  /** Caller must ensure a free cell exists — a full board would spin here. */
+  freeCell(snake) {
+    let cell;
+    do {
+      cell = {
+        x: Math.floor(Math.random() * this.cols),
+        y: Math.floor(Math.random() * this.rows)
+      };
+    } while (snake.covers(cell));
+    return cell;
+  }
+}
+
+
+/** Draws a game onto a canvas. Reads state, never changes it. */
+class Renderer {
+  constructor(canvas, cell) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.cell = cell;
+  }
+
+  draw(game) {
+    const ctx = this.ctx;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    ctx.fillStyle = '#e44';
+    this.square(game.food);
+
+    ctx.fillStyle = '#4c4';
+    for (const c of game.snake.cells) this.square(c);
+
+    if (game.state !== 'playing') this.overlay(game.state === 'won');
+  }
+
+  square(cell) {
+    this.ctx.fillRect(cell.x * this.cell, cell.y * this.cell, this.cell, this.cell);
+  }
+
+  overlay(won) {
+    const ctx = this.ctx;
+    const midX = this.canvas.width / 2;
+    const midY = this.canvas.height / 2;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    ctx.fillStyle = won ? '#4c4' : '#fff';
+    ctx.font = '32px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(won ? 'You win!' : 'Game Over', midX, midY - 10);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.fillText('press R to restart', midX, midY + 20);
+  }
+}
+
+
+/** Ties it together: the rules, the score, and whether the game is over. */
+class Game {
+  constructor(board, renderer, scoreEl) {
+    this.board = board;
+    this.renderer = renderer;
+    this.scoreEl = scoreEl;
+    this.reset();
+  }
+
+  reset() {
+    this.snake = new Snake(
+      [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}],
+      {x: 1, y: 0}
+    );
+    this.score = 0;
+    this.state = 'playing';
+    this.food = this.board.freeCell(this.snake);
+    this.showScore();
+    this.draw();
+  }
+
+  step() {
+    if (this.state !== 'playing') return;
+
+    const head = this.snake.nextHead();
+    const eating = same(head, this.food);
+
+    if (!this.board.contains(head) || this.snake.crashesInto(head, eating)) {
+      this.state = 'dead';
+      this.draw();
+      return;
+    }
+
+    this.snake.moveTo(head, eating);
+
+    if (eating) {
+      this.score++;
+      this.showScore();
+
+      // Filling the board is a win. Asking for another food cell here would
+      // never return, because there is no empty square left.
+      if (this.snake.length === this.board.area) {
+        this.state = 'won';
+        this.draw();
+        return;
+      }
+
+      this.food = this.board.freeCell(this.snake);
+    }
+
+    this.draw();
+  }
+
+  handleKey(key) {
+    if (key === 'r' || key === 'R') {
+      this.reset();
+      return true;
+    }
+    if (DIRECTIONS[key]) {
+      this.snake.queueTurn(DIRECTIONS[key]);
+      return true;
+    }
+    return false;
+  }
+
+  showScore() { this.scoreEl.textContent = 'Score: ' + this.score; }
+  draw()      { this.renderer.draw(this); }
+}
+
+
+const game = new Game(
+  new Board(COLS, ROWS),
+  new Renderer(document.getElementById('board'), CELL),
+  document.getElementById('score')
+);
+
 document.addEventListener('keydown', e => {
-  if (e.key === 'r' || e.key === 'R') {
-    reset();
-    draw();
-    return;
-  }
-  if (KEYS[e.key]) {
-    e.preventDefault();
-    queueTurn(KEYS[e.key]);
-  }
+  if (game.handleKey(e.key)) e.preventDefault();
 });
 
-reset();
-draw();
-setInterval(step, SPEED);
+setInterval(() => game.step(), SPEED);
 </script>
 
 </body>

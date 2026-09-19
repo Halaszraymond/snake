@@ -202,3 +202,48 @@ blank page. That's the price of the structure, and the reason I'd argued for a
 single file first.
 
 ---
+
+## Round 6 — checking it all again, this time on screen
+
+I asked for another full play-through to check everything still worked after
+the split.
+
+Rerunning the same suite would only have reprinted the same output, so this
+round closed the gap that had been open since the start: **nothing had ever
+checked that the game actually draws anything.** Every test so far ran against
+a fake canvas. They would all have passed on a game that rendered a blank
+screen.
+
+So this run drove the real game in real Chrome, loading the real files from
+disk, and read the pixels back off the canvas with `getImageData` — asking the
+browser what colour it actually painted each square. Keys went in as real
+`KeyboardEvent`s rather than direct calls.
+
+24 checks, all passing:
+
+- **Rendering** — the head and tail really are green, the food really is red,
+  empty squares really are black, and the score element reads zero.
+- **Keyboard** — up-then-left within one tick goes up first, then left, and
+  survives. Pressing the reverse direction is ignored. The head is repainted in
+  its new square and the vacated square is cleared back to black.
+- **Dying** — wall kills, turning into the middle of my own body kills,
+  following my own tail survives.
+- **Restart** — R restores the state, the length, the score and the board.
+- **Eating** — the snake grows, the score goes up, and the new food never
+  lands under the snake.
+- **Winning** — filling the board wins instead of hanging.
+
+I also looked at three screenshots: the starting board, the Game Over overlay,
+and the win screen with all 400 squares green and "You win!" over the top. All
+correct, and centred properly in a normal window.
+
+**Nothing was broken.** Worth writing down as a result rather than skipping,
+since a round that finds nothing is still evidence — and this was the first
+round where a rendering fault could have been caught at all.
+
+One limitation, not a regression: the board is a fixed 400 pixels and does not
+adapt to narrow windows, so on a phone-sized screen it would be cut off. It has
+been that way since v1. There are also no touch controls, so it is a
+keyboard-only game.
+
+---
